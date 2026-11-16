@@ -1,0 +1,86 @@
+Loyiha hozir klassik Layered (Qatlamli) arxitektura asosida boshlangan. Migratsiyalar tayyor bo'lganidan so'ng, loyihani to'g'ri tartibda quyidagi qadamlar bilan davom ettirish tavsiya etiladi:
+
+1-qadam: models/ qatlami (Go strukturalari)
+
+Birinchi navbatda migratsiyadagi jadvallarga mos Go structlarini yozib chiqish kerak.
+
+Har bir model faylida asosiy entity strukturasi va JSON taglari bo'ladi.
+Masalan:
+models/category.go -> Category, CreateCategoryReq, UpdateCategoryReq
+models/product.go -> Product, CreateProductReq
+models/sale.go va models/sale_item.go -> Sotuv va savdo pozitsiyalari
+models/payment.go, models/customer.go, models/employee.go
+2-qadam: storage/ (Repository) qatlami (Baza bilan ishlash)
+
+Har bir jadval uchun CRUD (Create, GetByID, GetAll, Update, Delete) metodlarini yozish:
+
+Oddiy CRUD: category, product, customer, employee uchun database/sql orqali $1, $2... parametrli so'rovlar yoziladi.
+Tranzaksiyalar (Tx - juda muhim):
+Ayniqsa sales (sotuv) jarayonida:
+Yangi sale yaratish;
+sale_itemslarni bitta-bitta kiritish;
+Sotilgan tovarlar sonini products.quantitydan ayirish.
+Bu amallar bitta db.Begin() tranzaksiyasi ichida bajarilishi, agar birortasida xato bo'lsa tx.Rollback(), muvaffaqiyatli bo'lsa tx.Commit() qilinishi shart.
+3-qadam: HTTP Router / Framework tanlash
+
+Hozircha go.modda faqat baza kutubxonalari bor. API server qilish uchun router tanlashingiz kerak:
+
+Go standart net/http (Go 1.22+): Tashqi kutubxonasiz qulay marshrutlash (mux.HandleFunc("POST /products", ...)) imkonini beradi.
+Gin (github.com/gin-gonic/gin): O'zbekistonda backend ishlarida eng ommabop, qulay va tezkor.
+Chi (github.com/go-chi/chi) yoki Echo: Yengil va qulay middleware imkoniyatlari bilan.
+
+Shundan so'ng config/config.go ga ServerPort (masalan, 8080) qo'shiladi va main.go da http.ListenAndServe orqali server ishga tushiriladi.
+
+4-qadam: handler/ qatlami (Controllers / Endpointlar)
+
+Har bir resurs uchun HTTP handler funksiyalarini yozish:
+
+Request (URL query, path params yoki JSON body)ni qabul qilish va validatsiya qilish;
+storage metodlarini chaqirish;
+Javobni JSON formatda (200 OK, 201 Created, 400 Bad Request, 404 Not Found, 500 Internal Error) qaytarish.
+5-qadam: Keyingi bosqichlar (Kengaytirish)
+Pagination & Search: Mahsulotlar yoki mijozlarni qidirish (?search=...) va sahifalash (?page=1&limit=10).
+Middleware: Logger, CORS, Recovery.
+Auth / JWT: Xodimlar uchun tizimga kirish (login) va rollar (ADMIN, CASHIER).
+Swagger Documentation: API-larni sinash va hujjatlashtirish uchun (swaggo/swag).
+
+Qaysi bosqichdan boshlaymiz? Xohlasangiz, avval 1-qadamdan — models/ strukturalarini to'liq yozib chiqishdan boshlashimiz mumkin, yoki biron router (masalan, Gin yoki net/http) tanlab davom etamizmi?
+Loyiha hozirgi kunda juda mustahkam poydevorga ega: Backend (Go + Gin + PostgreSQL) va Frontend (React + Tailwind CSS + POS Kassa) to'liq ishlab turibdi.
+
+Lekin loyihani haqiqiy ishlab chiqarish darajasidagi (Production-ready) professional tizimga aylantirish uchun ba'zi muhim mantiqiy va xavfsizlik funksiyalarini qo'shishimiz kerak.
+
+Quyida hozirgi holat va bosqichma-bosqich nimalar qo'shishimiz kerakligi bo'yicha to'liq tahlil keltirilgan:
+
+🟢 1. Loyihamiz hozir qanday holatda? (Nimalar tayyor?)
+Qism	Holati	Imkoniyatlari
+Frontend (TezBozor)	100% Tayyor	Zamonaviy Dashboard, Tezkor Kassa (POS), Savatcha, Kvitansiya chiqarish (Print Receipt), 7 ta bo'lim uchun to'liq CRUD, Offline Demo rejim.
+Backend Arxitekturasi	100% Tayyor	Clean Layered arxitektura (config, db, models, storage, handler, middleware).
+Ma'lumotlar Bazasi	Tayyor	Goose migratsiyalari bilan 7 ta asosiy jadval (categories, products, customers, employees, sales, sale_items, payment).
+Asosiy CRUD API	Tayyor	Barcha 7 ta modul uchun GET, POST, PUT, DELETE endpointlari ishlab turibdi.
+🟡 2. Unga yana nimalar qo'shishimiz kerak? (Mavjud kamchiliklar va Yechimlar)
+
+Haqiqiy do'konda tizim to'g'ri va xavfsiz ishlashi uchun quyidagi 4 ta eng muhim narsa yetishmayapti:
+
+1-muammo: Savdo jarayonida Tranzaksiya (Tx) va Tovar qoldig'ini ayirish yo'qligi
+Hozirgi holat: Kassa orqali sotuv amalga oshganda, bazaga yangi sale va sale_item yoziladi. Lekin ombordagi tovar soni (products.quantity) kamaymaydi!
+Nima qilish kerak:
+Sotuv bo'lganda products.quantity = products.quantity - $1 qilib sonini kamaytirish.
+Bularni bitta Tranzaksiya (db.Begin()) ichiga olish. Agar chek yozilib, to'lovda xato chiqsa, barcha amallarni bekor qilish (tx.Rollback()), hammasi to'g'ri bo'lsa tasdiqlash (tx.Commit()).
+2-muammo: Autentifikatsiya (Login / Parol / JWT) va Rollar
+Hozirgi holat: Hozir istalgan odam API orqali tovar narxini o'zgartirishi yoki xodimlarni o'chirib yuborishi mumkin (hech qanday login yo'q).
+Nima qilish kerak:
+employees jadvaliga password_hash ustunini qo'shish (bcrypt bilan shifrlash).
+POST /auth/login endpointini qilish (telefon va parol orqali kirish).
+JWT token berish va rollarni ajratish:
+Kassir (CASHIER): Faqat kassa qilish va tovarlarni ko'rish huquqiga ega bo'lsin.
+Admin (ADMIN): Oyliklarni, tovar narxlarini va hisobotlarni boshqara olsin.
+3-muammo: Pagination (Sahifalash) va Qidiruv (Search)
+Hozirgi holat: GetAllProducts() yoki GetAllSales() bazadagi hamma narsani bir vaqtda tortib oladi (SELECT * FROM ...).
+Nima qilish kerak:
+Agar do'konda 10 000 ta tovar bo'lsa, server qotib qoladi.
+Shuning uchun SQL-ga parametrlar qo'shish kerak: GET /products/?page=1&limit=20&search=samsung
+4-muammo: Kichik nom tafovuti (payment vs payments)
+20261111161404_create_payments.sql migratsiyasida jadval nomi birlikda: CREATE TABLE IF NOT EXISTS payment, lekin storage/payments.go da ko'plikda: INSERT INTO payments. Baza noldan ishga tushganda xato bermasligi uchun jadval nomini bir xil (payments) qilib qo'yish kerak.
+5-muammo: Swagger API Hujjatlashtirish
+Nima beradi: Barcha backend endpointlarini bitta chiroyli veb-sahifada (http://localhost:8080/swagger/index.html) ko'rish, sinash va hujjatlashtirish imkonini beradi.
+🗺️ Tavsiya etiladigan Reja (Qadamlar):
