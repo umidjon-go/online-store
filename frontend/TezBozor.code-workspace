@@ -1,0 +1,15 @@
+{
+  "folders": [
+    {
+      "name": "TezBozor - Frontend (React + Vite)",
+      "path": "."
+    },
+    {
+      "name": "TezBozor - Backend (Go Gin)",
+      "path": "../online-store"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true
+  }
+}
