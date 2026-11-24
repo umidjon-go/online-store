@@ -21,6 +21,17 @@ func (h *Handler) CreateSaleWithItems(c *gin.Context) {
 		return
 	}
 
+	// Agar kassa qilayotgan xodim ma'lum bo'lsa va employee_id kiritilmagan bo'lsa, avtomatik biriktiramiz
+	if empIDVal, exists := c.Get("employee_id"); exists {
+		if empID, ok := empIDVal.(int64); ok && empID > 0 {
+			roleVal, _ := c.Get("role")
+			role, _ := roleVal.(string)
+			if role != "CUSTOMER" && body.EmployeeId == 0 {
+				body.EmployeeId = empID
+			}
+		}
+	}
+
 	resp, err := h.storage.CreateSaleWithItems(body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -35,6 +46,14 @@ func (h *Handler) CreateSale(c *gin.Context) {
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	if empIDVal, exists := c.Get("employee_id"); exists {
+		if empID, ok := empIDVal.(int64); ok && empID > 0 {
+			if body.EmployeeId == 0 {
+				body.EmployeeId = empID
+			}
+		}
 	}
 
 	resp, err := h.storage.CreateSale(body)

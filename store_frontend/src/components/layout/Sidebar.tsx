@@ -4,6 +4,7 @@ import { useStore } from '../../context/StoreContext';
 import {
   LayoutDashboard,
   ShoppingCart,
+  ShoppingBag,
   Package,
   Layers,
   Receipt,
@@ -15,68 +16,82 @@ import {
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { cart, stats, products } = useStore();
+  const { cart, stats, products, currentUser } = useStore();
   const lowStockCount = products.filter((p) => p.quantity < 10).length;
 
-  const links = [
+  const userRole = currentUser?.role?.toUpperCase() || 'ADMIN';
+  const isCustomer = userRole === 'CUSTOMER';
+
+  const allLinks = [
     {
       to: '/',
       label: 'Boshqaruv Paneli',
       icon: LayoutDashboard,
       badge: null,
-    },
-    {
-      to: '/pos',
-      label: 'Kassa (POS)',
-      icon: ShoppingCart,
-      badge: cart.length > 0 ? `${cart.length}` : null,
-      badgeColor: 'bg-blue-500 text-white',
+      roles: ['ADMIN', 'MANAGER', 'CASHIER'],
     },
     {
       to: '/products',
-      label: 'Mahsulotlar',
-      icon: Package,
-      badge: lowStockCount > 0 ? `${lowStockCount} kam` : null,
+      label: isCustomer ? "Do'kon Vitrinasi" : 'Mahsulotlar',
+      icon: isCustomer ? ShoppingBag : Package,
+      badge: !isCustomer && lowStockCount > 0 ? `${lowStockCount} kam` : null,
       badgeColor: 'bg-amber-100 text-amber-800',
+      roles: ['ADMIN', 'MANAGER', 'CASHIER', 'CUSTOMER'],
+    },
+    {
+      to: '/pos',
+      label: isCustomer ? 'Mening Savatim' : 'Kassa (POS)',
+      icon: ShoppingCart,
+      badge: cart.length > 0 ? `${cart.length}` : null,
+      badgeColor: 'bg-blue-500 text-white',
+      roles: ['ADMIN', 'MANAGER', 'CASHIER', 'CUSTOMER'],
+    },
+    {
+      to: '/sales',
+      label: isCustomer ? 'Mening Xaridlarim' : 'Sotuvlar Tarixi',
+      icon: Receipt,
+      badge: stats.totalSalesCount > 0 ? `${stats.totalSalesCount}` : null,
+      badgeColor: 'bg-slate-100 text-slate-700',
+      roles: ['ADMIN', 'MANAGER', 'CASHIER', 'CUSTOMER'],
     },
     {
       to: '/categories',
       label: 'Kategoriyalar',
       icon: Layers,
       badge: null,
-    },
-    {
-      to: '/sales',
-      label: 'Sotuvlar Tarixi',
-      icon: Receipt,
-      badge: stats.totalSalesCount > 0 ? `${stats.totalSalesCount}` : null,
-      badgeColor: 'bg-slate-100 text-slate-700',
+      roles: ['ADMIN', 'MANAGER'],
     },
     {
       to: '/customers',
-      label: 'Mijozlar',
+      label: userRole === 'CASHIER' ? 'Mening Mijozlarim' : 'Mijozlar',
       icon: Users,
       badge: null,
+      roles: ['ADMIN', 'MANAGER', 'CASHIER'],
     },
     {
       to: '/employees',
       label: 'Xodimlar',
       icon: UserCheck,
       badge: null,
+      roles: ['ADMIN', 'MANAGER'],
     },
     {
       to: '/payments',
       label: "To'lovlar",
       icon: CreditCard,
       badge: null,
+      roles: ['ADMIN', 'MANAGER'],
     },
     {
       to: '/settings',
       label: 'Sozlamalar & API',
       icon: Settings,
       badge: null,
+      roles: ['ADMIN', 'MANAGER'],
     },
   ];
+
+  const links = allLinks.filter((l) => l.roles.includes(userRole));
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 min-h-[calc(100vh-4rem)]">

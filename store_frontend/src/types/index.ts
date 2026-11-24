@@ -13,6 +13,8 @@ export interface Product {
   price: number;
   status: 'ACTIVE' | 'INACTIVE' | string;
   quantity: number;
+  image_url?: string;
+  description?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -23,6 +25,7 @@ export interface Customer {
   phone: string;
   email: string;
   status: 'ACTIVE' | 'INACTIVE' | string;
+  created_by?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -35,8 +38,39 @@ export interface Employee {
   role: 'ADMIN' | 'CASHIER' | 'MANAGER' | string;
   status: 'ACTIVE' | 'INACTIVE' | string;
   salary: number;
+  password?: string;
+  plain_password?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface AuthUser {
+  id: number;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  role: 'ADMIN' | 'CASHIER' | 'MANAGER' | string;
+  status?: string;
+  salary?: number;
+}
+
+export interface LoginResponse {
+  token: string;
+  employee: AuthUser;
+}
+
+export interface CheckoutPayload {
+  customer_id: number;
+  employee_id?: number;
+  total_amount: number;
+  discount: number;
+  status: string;
+  payment_type: string;
+  items: {
+    product_id: number;
+    quantity: number;
+    unit_price: number;
+  }[];
 }
 
 export interface Sale {

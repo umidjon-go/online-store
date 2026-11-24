@@ -6,7 +6,10 @@ import {
   Employee,
   Sale,
   SaleItem,
-  Payment
+  Payment,
+  AuthUser,
+  LoginResponse,
+  CheckoutPayload,
 } from '../types';
 import {
   initialCategories,
@@ -34,13 +37,18 @@ export const setDemoModeActive = (active: boolean): void => {
   localStorage.setItem('tezbozor_demo_mode', active ? 'true' : 'false');
 };
 
-const createAxiosClient = () => {
+export const createAxiosClient = () => {
+  const token = localStorage.getItem('tezbozor_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   return axios.create({
     baseURL: getApiBaseUrl(),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    timeout: 3500,
+    headers,
+    timeout: 5000,
   });
 };
 
@@ -54,6 +62,138 @@ export const checkBackendHealth = async (): Promise<boolean> => {
   } catch {
     return false;
   }
+};
+
+// Demo login fallback helper
+export const getDemoLoginResponse = (phone: string, password: string): LoginResponse => {
+  const cleanPhone = phone.replace(/[\s\-\(\)]/g, '');
+  if (cleanPhone.includes('901234567') || cleanPhone.includes('901112233')) {
+    if (password === 'admin123') {
+      const employee: AuthUser = {
+        id: 1,
+        first_name: 'Bobur (Admin)',
+        last_name: 'Rustamov',
+        phone: '+998901234567',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        salary: 12000000,
+      };
+      const token = 'demo_admin_jwt_token_sample';
+      localStorage.setItem('tezbozor_token', token);
+      localStorage.setItem('tezbozor_current_user', JSON.stringify(employee));
+      return { token, employee };
+    }
+    throw new Error("Parol noto'g'ri (namuna: admin123)");
+  }
+
+  if (cleanPhone.includes('912223344') || cleanPhone.includes('909876543')) {
+    if (password === 'kassir123') {
+      const employee: AuthUser = {
+        id: 2,
+        first_name: 'Nodira (Kassir)',
+        last_name: 'Sobirova',
+        phone: '+998912223344',
+        role: 'CASHIER',
+        status: 'ACTIVE',
+        salary: 5500000,
+      };
+      const token = 'demo_cashier_jwt_token_sample';
+      localStorage.setItem('tezbozor_token', token);
+      localStorage.setItem('tezbozor_current_user', JSON.stringify(employee));
+      return { token, employee };
+    }
+    throw new Error("Parol noto'g'ri (namuna: kassir123)");
+  }
+
+  if (cleanPhone.includes('974445566') || cleanPhone.includes('905554433')) {
+    if (password === 'manager123') {
+      const employee: AuthUser = {
+        id: 4,
+        first_name: 'Shahlo (Menejer)',
+        last_name: 'Azizova',
+        phone: '+998974445566',
+        role: 'MANAGER',
+        status: 'ACTIVE',
+        salary: 8000000,
+      };
+      const token = 'demo_manager_jwt_token_sample';
+      localStorage.setItem('tezbozor_token', token);
+      localStorage.setItem('tezbozor_current_user', JSON.stringify(employee));
+      return { token, employee };
+    }
+    throw new Error("Parol noto'g'ri (namuna: manager123)");
+  }
+
+  // Customer demo account for testing customer persona
+  if (cleanPhone.includes('901234568') || cleanPhone.includes('909998877') || password === 'mijoz123') {
+    const customerUser: AuthUser = {
+      id: 1, // Matches Customer ID 1 (Alisher Qodirov)
+      first_name: 'Alisher (Mijoz)',
+      last_name: 'Qodirov',
+      phone: '+998901234568',
+      role: 'CUSTOMER',
+      status: 'ACTIVE',
+    };
+    const token = 'demo_customer_jwt_token_sample';
+    localStorage.setItem('tezbozor_token', token);
+    localStorage.setItem('tezbozor_current_user', JSON.stringify(customerUser));
+    return { token, employee: customerUser };
+  }
+
+  throw new Error("Bunday hisob topilmadi! Namuna hisoblar: Admin (+998901234567 / admin123), Menejer (+998974445566 / manager123), Kassir (+998912223344 / kassir123), Mijoz (+998901234568 / mijoz123)");
+};
+
+// ===================== AUTH API =====================
+export const AuthApi = {
+  login: async (phone: string, password: string): Promise<LoginResponse> => {
+    if (isDemoModeActive()) {
+      return getDemoLoginResponse(phone, password);
+    }
+    try {
+      const client = createAxiosClient();
+      const res = await client.post('/auth/login', { phone, password });
+      const data: LoginResponse = res.data;
+      if (data && data.token) {
+        localStorage.setItem('tezbozor_token', data.token);
+        localStorage.setItem('tezbozor_current_user', JSON.stringify(data.employee));
+      }
+      return data;
+    } catch (err: any) {
+      if (err.response && err.response.data && err.response.data.error) {
+        throw new Error(err.response.data.error);
+      }
+      // If network unreachable, check if user credentials match demo accounts
+      if (!err.response) {
+        return getDemoLoginResponse(phone, password);
+      }
+      throw new Error(err.message || "Kirishda xatolik yuz berdi");
+    }
+  },
+
+  getProfile: async (): Promise<AuthUser> => {
+    if (isDemoModeActive()) {
+      const saved = localStorage.getItem('tezbozor_current_user');
+      if (saved) return JSON.parse(saved);
+      throw new Error('Foydalanuvchi tizimga kirmagan');
+    }
+    try {
+      const client = createAxiosClient();
+      const res = await client.get('/auth/profile');
+      if (res.data) {
+        localStorage.setItem('tezbozor_current_user', JSON.stringify(res.data));
+      }
+      return res.data;
+    } catch (err: any) {
+      const saved = localStorage.getItem('tezbozor_current_user');
+      if (saved) return JSON.parse(saved);
+      throw err;
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem('tezbozor_token');
+    localStorage.removeItem('tezbozor_current_user');
+  },
 };
 
 // In-memory demo store fallback when backend is unreachable or demo mode enabled
@@ -101,6 +241,65 @@ class LocalDemoStore {
         payments: this.payments,
       })
     );
+  }
+
+  handleLocalCheckout(data: CheckoutPayload) {
+    // 1. Check stock
+    for (const item of data.items) {
+      const prod = this.products.find((p) => p.id === item.product_id);
+      if (!prod || prod.quantity < item.quantity) {
+        throw new Error(`Mahsulot (${prod ? prod.name : item.product_id}) omborda yetarli emas!`);
+      }
+    }
+    // 2. Decrement stock
+    for (const item of data.items) {
+      const prod = this.products.find((p) => p.id === item.product_id);
+      if (prod) {
+        prod.quantity -= item.quantity;
+      }
+    }
+    // 3. Create Sale
+    const saleId = Date.now();
+    const newSale: Sale = {
+      id: saleId,
+      customer_id: data.customer_id,
+      employee_id: data.employee_id || 1,
+      total_amount: data.total_amount,
+      discount: data.discount,
+      status: data.status || 'COMPLETED',
+      created_at: new Date().toISOString(),
+    };
+    this.sales.unshift(newSale);
+
+    // 4. Create Sale Items
+    const createdItems: SaleItem[] = [];
+    for (const item of data.items) {
+      const saleItem: SaleItem = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        sale_id: saleId,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        subtotal: item.quantity * item.unit_price,
+        created_at: new Date().toISOString(),
+      };
+      this.saleItems.push(saleItem);
+      createdItems.push(saleItem);
+    }
+
+    // 5. Create Payment
+    const payment: Payment = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      sale_id: saleId,
+      amount: Math.max(0, data.total_amount - data.discount),
+      payment_type: data.payment_type || 'CASH',
+      status: 'COMPLETED',
+      paid_at: new Date().toISOString(),
+    };
+    this.payments.unshift(payment);
+
+    this.saveToStorage();
+    return { sale: newSale, items: createdItems, payment };
   }
 
   reset() {
@@ -306,11 +505,40 @@ export const ProductApi = {
 // ===================== CUSTOMERS API =====================
 export const CustomerApi = {
   getAll: async (): Promise<Customer[]> => {
-    if (isDemoModeActive()) return localStore.customers;
+    const userStr = localStorage.getItem('tezbozor_current_user');
+    let currentUserRole = '';
+    let currentUserId = 0;
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        currentUserRole = u.role;
+        currentUserId = u.id;
+      } catch {}
+    }
+
+    if (isDemoModeActive()) {
+      if (currentUserRole === 'CASHIER') {
+        return localStore.customers.filter((c) => c.created_by === currentUserId);
+      }
+      if (currentUserRole === 'CUSTOMER') {
+        return localStore.customers.filter((c) => c.id === currentUserId);
+      }
+      return localStore.customers;
+    }
     try {
       const res = await createAxiosClient().get('/customers/');
-      return res.data || [];
+      const list = res.data || [];
+      if (currentUserRole === 'CUSTOMER') {
+        return list.filter((c: Customer) => c.id === currentUserId);
+      }
+      return list;
     } catch {
+      if (currentUserRole === 'CASHIER') {
+        return localStore.customers.filter((c) => c.created_by === currentUserId);
+      }
+      if (currentUserRole === 'CUSTOMER') {
+        return localStore.customers.filter((c) => c.id === currentUserId);
+      }
       return localStore.customers;
     }
   },
@@ -327,10 +555,20 @@ export const CustomerApi = {
   },
 
   create: async (data: Omit<Customer, 'id'>): Promise<Customer> => {
+    let createdBy: number | undefined = undefined;
+    const userStr = localStorage.getItem('tezbozor_current_user');
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        createdBy = u.id;
+      } catch {}
+    }
+    const payload = { ...data, created_by: data.created_by || createdBy };
+
     if (isDemoModeActive()) {
       const newC: Customer = {
         id: Date.now(),
-        ...data,
+        ...payload,
         created_at: new Date().toISOString(),
       };
       localStore.customers.unshift(newC);
@@ -338,12 +576,12 @@ export const CustomerApi = {
       return newC;
     }
     try {
-      const res = await createAxiosClient().post('/customers/', data);
+      const res = await createAxiosClient().post('/customers/', payload);
       return res.data;
     } catch {
       const newC: Customer = {
         id: Date.now(),
-        ...data,
+        ...payload,
         created_at: new Date().toISOString(),
       };
       localStore.customers.unshift(newC);
@@ -394,23 +632,43 @@ export const CustomerApi = {
 // ===================== EMPLOYEES API =====================
 export const EmployeeApi = {
   getAll: async (): Promise<Employee[]> => {
-    if (isDemoModeActive()) return localStore.employees;
+    const userStr = localStorage.getItem('tezbozor_current_user');
+    let isAdmin = false;
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        isAdmin = u.role?.toUpperCase() === 'ADMIN';
+      } catch {}
+    }
+
+    if (isDemoModeActive()) {
+      return localStore.employees.map((e) => (isAdmin ? e : { ...e, password: '', plain_password: '' }));
+    }
     try {
       const res = await createAxiosClient().get('/employees/');
       return res.data || [];
     } catch {
-      return localStore.employees;
+      return localStore.employees.map((e) => (isAdmin ? e : { ...e, password: '', plain_password: '' }));
     }
   },
 
   getById: async (id: number): Promise<Employee> => {
+    const userStr = localStorage.getItem('tezbozor_current_user');
+    let isAdmin = false;
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        isAdmin = u.role?.toUpperCase() === 'ADMIN';
+      } catch {}
+    }
+
     try {
       const res = await createAxiosClient().get(`/employees/${id}`);
       return res.data;
     } catch {
       const e = localStore.employees.find((i) => i.id === id);
       if (!e) throw new Error('Xodim topilmadi');
-      return e;
+      return isAdmin ? e : { ...e, password: '', plain_password: '' };
     }
   },
 
@@ -482,11 +740,34 @@ export const EmployeeApi = {
 // ===================== SALES API =====================
 export const SaleApi = {
   getAll: async (): Promise<Sale[]> => {
-    if (isDemoModeActive()) return localStore.sales;
+    const userStr = localStorage.getItem('tezbozor_current_user');
+    let currentUserRole = '';
+    let currentUserId = 0;
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        currentUserRole = u.role;
+        currentUserId = u.id;
+      } catch {}
+    }
+
+    if (isDemoModeActive()) {
+      if (currentUserRole === 'CUSTOMER') {
+        return localStore.sales.filter((s) => s.customer_id === currentUserId);
+      }
+      return localStore.sales;
+    }
     try {
       const res = await createAxiosClient().get('/sales/');
-      return res.data || [];
+      const list: Sale[] = res.data || [];
+      if (currentUserRole === 'CUSTOMER') {
+        return list.filter((s) => s.customer_id === currentUserId);
+      }
+      return list;
     } catch {
+      if (currentUserRole === 'CUSTOMER') {
+        return localStore.sales.filter((s) => s.customer_id === currentUserId);
+      }
       return localStore.sales;
     }
   },
@@ -499,6 +780,20 @@ export const SaleApi = {
       const s = localStore.sales.find((i) => i.id === id);
       if (!s) throw new Error('Sotuv topilmadi');
       return s;
+    }
+  },
+
+  // Atomik tranzaksiyali kassa savdosi (Ombordan ayirish + Sotuv + Chek tovarlari + To'lov)
+  checkout: async (data: CheckoutPayload): Promise<any> => {
+    if (isDemoModeActive()) {
+      return localStore.handleLocalCheckout(data);
+    }
+    try {
+      const res = await createAxiosClient().post('/sales/checkout', data);
+      return res.data;
+    } catch (err: any) {
+      console.warn('Backend checkout error, falling back to local simulation:', err);
+      return localStore.handleLocalCheckout(data);
     }
   },
 

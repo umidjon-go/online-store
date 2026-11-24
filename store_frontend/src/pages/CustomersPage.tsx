@@ -12,15 +12,20 @@ import {
   Phone,
   Mail,
   ShoppingBag,
+  ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
-  const { customers, sales, formatPrice, formatDate, refreshAll, addToast } = useStore();
+  const { customers, employees, sales, formatPrice, formatDate, refreshAll, addToast, currentUser } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [deletingCustomerId, setDeletingCustomerId] = useState<number | null>(null);
+
+  const isCashier = currentUser?.role?.toUpperCase() === 'CASHIER';
+  const isAdmin = currentUser?.role?.toUpperCase() === 'ADMIN';
 
   const [formData, setFormData] = useState({
     full_name: '',
@@ -134,6 +139,26 @@ export const CustomersPage: React.FC = () => {
         </button>
       </div>
 
+      {/* Cashier Specific Info Banner */}
+      {isCashier && (
+        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-blue-950">Kassir shaxsiy mijozlar bo'limi</p>
+              <p className="text-blue-700 text-xs mt-0.5">
+                Xavfsizlik va RBAC qoidalariga muvofiq, siz faqat o'zingiz kiritgan mijozlarni ko'rasiz va xizmat ko'rsata olasiz.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 rounded-full font-bold text-xs bg-blue-200/70 text-blue-800 shrink-0">
+            Sizning mijozlaringiz: {filteredCustomers.length} ta
+          </span>
+        </div>
+      )}
+
       {/* Filter Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
         <div className="relative w-full max-w-md">
@@ -158,6 +183,7 @@ export const CustomersPage: React.FC = () => {
                 <th className="py-3.5 px-4">To'liq Ismi (F.I.SH)</th>
                 <th className="py-3.5 px-4">Telefon</th>
                 <th className="py-3.5 px-4">Elektron Pochta</th>
+                {!isCashier && <th className="py-3.5 px-4">Biriktirilgan Xodim</th>}
                 <th className="py-3.5 px-4 text-center">Xaridlar Soni</th>
                 <th className="py-3.5 px-4 text-center">Holat</th>
                 <th className="py-3.5 px-4 text-right">Amallar</th>
@@ -166,13 +192,15 @@ export const CustomersPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={isCashier ? 7 : 8} className="py-12 text-center text-slate-400">
                     Mijozlar topilmadi
                   </td>
                 </tr>
               ) : (
                 filteredCustomers.map((c) => {
                   const custSales = sales.filter((s) => s.customer_id === c.id);
+                  const creator = c.created_by ? employees.find((e) => e.id === c.created_by) : null;
+
                   return (
                     <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-medium text-slate-500">
@@ -196,6 +224,18 @@ export const CustomersPage: React.FC = () => {
                           {c.email || '-'}
                         </div>
                       </td>
+                      {!isCashier && (
+                        <td className="py-3.5 px-4 text-xs text-slate-600">
+                          {creator ? (
+                            <span className="inline-flex items-center gap-1 font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                              <UserCheck className="w-3 h-3 text-indigo-500" />
+                              {creator.first_name} {creator.last_name}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Umumiy</span>
+                          )}
+                        </td>
+                      )}
                       <td className="py-3.5 px-4 text-center">
                         <span className="font-bold text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full">
                           {custSales.length} ta xarid
@@ -221,13 +261,15 @@ export const CustomersPage: React.FC = () => {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => setDeletingCustomerId(c.id)}
-                            title="O'chirish"
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDeletingCustomerId(c.id)}
+                              title="O'chirish"
+                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

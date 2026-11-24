@@ -11,6 +11,22 @@ func (s *Storage) CreateSale(sale models.Sale) (*models.Sale, error) {
 	if sale.Status == "" {
 		sale.Status = "PENDING"
 	}
+	var custID *int64
+	if sale.CustomerId > 0 {
+		var exists bool
+		_ = s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)`, sale.CustomerId).Scan(&exists)
+		if exists {
+			custID = &sale.CustomerId
+		}
+	}
+	var empID *int64
+	if sale.EmployeeId > 0 {
+		var exists bool
+		_ = s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM employees WHERE id = $1)`, sale.EmployeeId).Scan(&exists)
+		if exists {
+			empID = &sale.EmployeeId
+		}
+	}
 	query := `
 		INSERT INTO sales (customer_id, employee_id, total_amount, discount, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -19,8 +35,8 @@ func (s *Storage) CreateSale(sale models.Sale) (*models.Sale, error) {
 	var resp models.Sale
 	err := s.DB.QueryRow(
 		query,
-		sale.CustomerId,
-		sale.EmployeeId,
+		custID,
+		empID,
 		sale.TOtalAmount,
 		sale.Discount,
 		sale.Status,
@@ -56,7 +72,25 @@ func (s *Storage) CreateSaleWithItems(req models.CreateSaleWithItemsReq) (*model
 		}
 	}()
 
-	// 1. Yangi sotuv (chek) yaratish
+	// 1. Yangi sotuv (chek) yaratish - mijoz va xodim mavjudligini xavfsiz tekshiramiz
+	var custID *int64
+	if req.CustomerId > 0 {
+		var exists bool
+		_ = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)`, req.CustomerId).Scan(&exists)
+		if exists {
+			custID = &req.CustomerId
+		}
+	}
+
+	var empID *int64
+	if req.EmployeeId > 0 {
+		var exists bool
+		_ = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM employees WHERE id = $1)`, req.EmployeeId).Scan(&exists)
+		if exists {
+			empID = &req.EmployeeId
+		}
+	}
+
 	querySale := `
 		INSERT INTO sales (customer_id, employee_id, total_amount, discount, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -65,8 +99,8 @@ func (s *Storage) CreateSaleWithItems(req models.CreateSaleWithItemsReq) (*model
 	var sale models.Sale
 	err = tx.QueryRow(
 		querySale,
-		req.CustomerId,
-		req.EmployeeId,
+		custID,
+		empID,
 		req.TotalAmount,
 		req.Discount,
 		req.Status,

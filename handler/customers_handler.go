@@ -15,6 +15,13 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		return
 	}
 
+	// Agar so'rov yuborgan xodim mavjud bo'lsa, mijozga uni biriktiramiz
+	if empIDVal, exists := c.Get("employee_id"); exists {
+		if empID, ok := empIDVal.(int64); ok && empID > 0 {
+			body.CreatedBy = &empID
+		}
+	}
+
 	resp, err := h.storage.CreateCustomer(body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -32,7 +39,17 @@ func (h *Handler) GetCustomerByID(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.storage.GetCustomerByID(id)
+	// Agar foydalanuvchi KASSIR bo'lsa, faqat o'ziga tegishli mijozni ko'ra oladi
+	var cashierFilter *int64
+	if roleVal, exists := c.Get("role"); exists && roleVal == "CASHIER" {
+		if empIDVal, ok := c.Get("employee_id"); ok {
+			if empID, okID := empIDVal.(int64); okID && empID > 0 {
+				cashierFilter = &empID
+			}
+		}
+	}
+
+	resp, err := h.storage.GetCustomerByID(id, cashierFilter)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -42,7 +59,17 @@ func (h *Handler) GetCustomerByID(c *gin.Context) {
 }
 
 func (h *Handler) GetAllCustomers(c *gin.Context) {
-	resp, err := h.storage.GetAllCustomers()
+	// Agar foydalanuvchi KASSIR bo'lsa, faqat o'ziga tegishli mijozlarni ko'radi
+	var cashierFilter *int64
+	if roleVal, exists := c.Get("role"); exists && roleVal == "CASHIER" {
+		if empIDVal, ok := c.Get("employee_id"); ok {
+			if empID, okID := empIDVal.(int64); okID && empID > 0 {
+				cashierFilter = &empID
+			}
+		}
+	}
+
+	resp, err := h.storage.GetAllCustomers(cashierFilter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

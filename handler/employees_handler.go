@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"online-store/models"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,6 +39,16 @@ func (h *Handler) GetEmployeeByID(c *gin.Context) {
 		return
 	}
 
+	// Faqat ADMIN parolni ko'ra olsin: agar so'rov yuborgan foydalanuvchi ADMIN bo'lmasa, parolni yashiramiz
+	roleVal, _ := c.Get("role")
+	callerRole, _ := roleVal.(string)
+	isAdmin := strings.EqualFold(callerRole, "ADMIN")
+
+	if !isAdmin {
+		resp.Password = ""
+		resp.PlainPassword = ""
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -50,6 +61,18 @@ func (h *Handler) GetAllEmployees(c *gin.Context) {
 
 	if resp == nil {
 		resp = []models.Employee{}
+	}
+
+	// Faqat ADMIN parolni ko'ra olsin: agar so'rov yuborgan foydalanuvchi ADMIN bo'lmasa, parollarni tozalaymiz
+	roleVal, _ := c.Get("role")
+	callerRole, _ := roleVal.(string)
+	isAdmin := strings.EqualFold(callerRole, "ADMIN")
+
+	if !isAdmin {
+		for i := range resp {
+			resp[i].Password = ""
+			resp[i].PlainPassword = ""
+		}
 	}
 
 	c.JSON(http.StatusOK, resp)

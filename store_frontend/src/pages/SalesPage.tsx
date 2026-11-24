@@ -29,7 +29,11 @@ export const SalesPage: React.FC = () => {
     formatDate,
     refreshAll,
     addToast,
+    currentUser,
   } = useStore();
+
+  const isCustomer = currentUser?.role?.toUpperCase() === 'CUSTOMER';
+  const isAdmin = currentUser?.role?.toUpperCase() === 'ADMIN';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
@@ -61,6 +65,9 @@ export const SalesPage: React.FC = () => {
   const filteredSales = useMemo(() => {
     return sales
       .filter((s) => {
+        if (isCustomer && s.customer_id !== currentUser?.id) {
+          return false;
+        }
         const matchStatus = selectedStatus === 'ALL' || s.status === selectedStatus;
         const custName = getCustomerName(s.customer_id).toLowerCase();
         const matchQuery =
@@ -69,7 +76,7 @@ export const SalesPage: React.FC = () => {
         return matchStatus && matchQuery;
       })
       .sort((a, b) => (b.id || 0) - (a.id || 0));
-  }, [sales, selectedStatus, searchQuery, customers]);
+  }, [sales, selectedStatus, searchQuery, customers, isCustomer, currentUser]);
 
   const handleOpenDetails = async (sale: Sale) => {
     setViewingSale(sale);
@@ -124,10 +131,12 @@ export const SalesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <Receipt className="w-7 h-7 text-blue-600" />
-            Sotuvlar Tarixi va Jurnali
+            {isCustomer ? "Mening Xaridlarim Tarixi" : "Sotuvlar Tarixi va Jurnali"}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Barcha amalga oshirilgan tranzaksiyalar, cheklar va savdo pozitsiyalari
+            {isCustomer
+              ? "Siz amalga oshirgan barcha xaridlar va cheklar ro'yxati"
+              : "Barcha amalga oshirilgan tranzaksiyalar, cheklar va savdo pozitsiyalari (RBAC)"}
           </p>
         </div>
       </div>
@@ -236,13 +245,15 @@ export const SalesPage: React.FC = () => {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => setDeletingSaleId(s.id)}
-                            title="O'chirish"
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDeletingSaleId(s.id)}
+                              title="O'chirish"
+                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

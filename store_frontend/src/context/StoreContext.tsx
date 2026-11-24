@@ -7,7 +7,8 @@ import {
   Sale,
   Payment,
   CartItem,
-  DashboardStats
+  DashboardStats,
+  AuthUser,
 } from '../types';
 import {
   CategoryApi,
@@ -16,6 +17,7 @@ import {
   EmployeeApi,
   SaleApi,
   PaymentApi,
+  AuthApi,
   checkBackendHealth,
   isDemoModeActive,
   setDemoModeActive,
@@ -29,6 +31,14 @@ export interface ToastMessage {
 }
 
 interface StoreContextType {
+  // Auth & RBAC
+  currentUser: AuthUser | null;
+  token: string | null;
+  isAuthLoading: boolean;
+  login: (phone: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  hasRole: (allowedRoles: string[]) => boolean;
+
   // Data
   categories: Category[];
   products: Product[];
@@ -70,6 +80,22 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Auth state
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    const saved = localStorage.getItem('tezbozor_current_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {}
+    }
+    return null;
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    return localStorage.getItem('tezbozor_token');
+  });
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+
+  // Entities state
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -129,6 +155,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setApiUrlState(getApiBaseUrl());
   }, []);
 
+  // Role check helper
+  const hasRole = useCallback((allowedRoles: string[]) => {
+    if (!currentUser || !currentUser.role) return false;
+    return allowedRoles.some((r) => r.toUpperCase() === currentUser.role.toUpperCase());
+  }, [currentUser]);
+
   // Refresh all entities
   const refreshAll = useCallback(async () => {
     setLoading(true);
@@ -136,13 +168,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const online = await checkBackendHealth();
       setIsBackendOnline(online);
 
+      // Cashiers can't access /employees (403), so catch and return empty array if forbidden
       const [cats, prods, custs, emps, sls, pymts] = await Promise.all([
-        CategoryApi.getAll(),
-        ProductApi.getAll(),
-        CustomerApi.getAll(),
-        EmployeeApi.getAll(),
-        SaleApi.getAll(),
-        PaymentApi.getAll(),
+        CategoryApi.getAll().catch(() => []),
+        ProductApi.getAll().catch(() => []),
+        CustomerApi.getAll().catch(() => []),
+        EmployeeApi.getAll().catch(() => []),
+        SaleApi.getAll().catch(() => []),
+        PaymentApi.getAll().catch(() => []),
       ]);
 
       setCategories(cats || []);
@@ -159,11 +192,62 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [addToast]);
 
+  // Login handler
+  const login = useCallback(async (phone: string, password: string) => {
+    try {
+      const res = await AuthApi.login(phone, password);
+      setCurrentUser(res.employee);
+      setToken(res.token);
+      addToast(`Xush kelibsiz, ${res.employee.first_name}!`, 'success');
+      setTimeout(() => {
+        refreshAll();
+      }, 100);
+      return { success: true };
+    } catch (err: any) {
+      const msg = err.message || 'Kirishda xatolik yuz berdi';
+      addToast(msg, 'error');
+      return { success: false, error: msg };
+    }
+  }, [addToast, refreshAll]);
+
+  // Logout handler
+  const logout = useCallback(() => {
+    AuthApi.logout();
+    setCurrentUser(null);
+    setToken(null);
+    setCart([]);
+    addToast('Tizimdan muvaffaqiyatli chiqildi', 'info');
+  }, [addToast]);
+
   const setDemoMode = useCallback((active: boolean) => {
     setDemoModeActive(active);
     setIsDemoMode(active);
     refreshAll();
   }, [refreshAll]);
+
+  // Verify profile on initial load
+  useEffect(() => {
+    const verifyUser = async () => {
+      const savedToken = localStorage.getItem('tezbozor_token');
+      if (savedToken) {
+        try {
+          const profile = await AuthApi.getProfile();
+          if (profile) {
+            setCurrentUser(profile);
+          }
+        } catch (e) {
+          console.warn('Profile check failed:', e);
+          if (!isDemoModeActive()) {
+            AuthApi.logout();
+            setCurrentUser(null);
+            setToken(null);
+          }
+        }
+      }
+      setIsAuthLoading(false);
+    };
+    verifyUser();
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -256,6 +340,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   return (
     <StoreContext.Provider
       value={{
+        currentUser,
+        token,
+        isAuthLoading,
+        login,
+        logout,
+        hasRole,
         categories,
         products,
         customers,

@@ -3,6 +3,8 @@ import { useStore } from '../context/StoreContext';
 import { Product, Customer } from '../types';
 import { SaleApi, SaleItemApi, PaymentApi, CustomerApi } from '../services/api';
 import { Modal } from '../components/common/Modal';
+import { ProductDetailModal } from '../components/common/ProductDetailModal';
+import { getProductImageUrl } from '../utils/productImages';
 import {
   Search,
   ShoppingCart,
@@ -28,6 +30,7 @@ export const PosPage: React.FC = () => {
     categories,
     customers,
     employees,
+    currentUser,
     cart,
     addToCart,
     updateCartQuantity,
@@ -43,16 +46,37 @@ export const PosPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<number | 'ALL'>('ALL');
 
+  const isCustomer = currentUser?.role?.toUpperCase() === 'CUSTOMER';
+
   // Checkout state
   const [selectedCustomerId, setSelectedCustomerId] = useState<number>(
-    customers.length > 0 ? customers[0].id : 1
+    isCustomer && currentUser?.id ? currentUser.id : (customers.length > 0 ? customers[0].id : 1)
   );
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(
-    employees.length > 0 ? employees[0].id : 1
+    currentUser?.id || (employees.length > 0 ? employees[0].id : 1)
   );
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
+  // Sync customer selection when customers list updates
+  React.useEffect(() => {
+    if (customers.length > 0) {
+      if (isCustomer) {
+        const match = customers.find((c) => c.phone === currentUser?.phone);
+        if (match) {
+          setSelectedCustomerId(match.id);
+        } else if (!customers.some((c) => c.id === selectedCustomerId)) {
+          setSelectedCustomerId(customers[0].id);
+        }
+      } else {
+        if (!customers.some((c) => c.id === selectedCustomerId)) {
+          setSelectedCustomerId(customers[0].id);
+        }
+      }
+    }
+  }, [customers, isCustomer, currentUser]);
+
   // Modals
+  const [selectedDetailProduct, setSelectedDetailProduct] = useState<Product | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
@@ -132,45 +156,37 @@ export const PosPage: React.FC = () => {
     setIsCheckoutOpen(true);
   };
 
-  // Process Checkout Transaction
+  // Process Checkout Transaction (Atomic Transaction)
   const handleConfirmCheckout = async () => {
     if (cart.length === 0) return;
     setIsSubmitting(true);
 
     try {
-      // 1. Create Sale
-      const newSale = await SaleApi.create({
-        customer_id: selectedCustomerId,
-        employee_id: selectedEmployeeId,
+      const empId = isCustomer ? 0 : (currentUser?.id || selectedEmployeeId || 0);
+      const custId = isCustomer
+        ? (selectedCustomerId || customers[0]?.id || 10)
+        : (selectedCustomerId || (customers.length > 0 ? customers[0].id : 10));
+
+      // Atomic checkout: Sale + Sale Items + Stock decrement + Payment in a single transaction
+      const resp = await SaleApi.checkout({
+        customer_id: custId,
+        employee_id: empId,
         total_amount: cartSubtotal,
         discount: discountAmount,
         status: 'COMPLETED',
-      });
-
-      const saleId = newSale.id;
-
-      // 2. Create Sale Items
-      for (const item of cart) {
-        await SaleItemApi.create({
-          sale_id: saleId,
+        payment_type: paymentType,
+        items: cart.map((item) => ({
           product_id: item.product.id,
           quantity: item.quantity,
           unit_price: item.unitPrice,
-          subtotal: item.subtotal,
-        });
-      }
-
-      // 3. Create Payment
-      await PaymentApi.create({
-        sale_id: saleId,
-        amount: finalTotal,
-        payment_type: paymentType,
-        status: 'COMPLETED',
+        })),
       });
 
+      const saleId = resp?.sale?.id || resp?.id || Date.now();
+
       // Prepare receipt data
-      const cust = customers.find((c) => c.id === selectedCustomerId);
-      const emp = employees.find((e) => e.id === selectedEmployeeId);
+      const cust = customers.find((c) => c.id === custId);
+      const emp = isCustomer ? null : (currentUser || employees.find((e) => e.id === empId));
 
       setCompletedSaleData({
         saleId,
@@ -181,8 +197,8 @@ export const PosPage: React.FC = () => {
         cashReceived: paymentType === 'CASH' ? cashReceived : finalTotal,
         change: changeAmount,
         paymentType,
-        customerName: cust ? cust.full_name : 'Umumiy Xaridor',
-        employeeName: emp ? `${emp.first_name} ${emp.last_name}` : 'Kassir',
+        customerName: cust ? cust.full_name : (isCustomer ? `${currentUser?.first_name} ${currentUser?.last_name}` : 'Umumiy Xaridor'),
+        employeeName: emp ? `${emp.first_name} ${emp.last_name}` : (isCustomer ? 'Onlayn Xarid (Mijoz)' : 'Kassir'),
         date: new Date().toLocaleString('uz-UZ'),
       });
 
@@ -193,10 +209,10 @@ export const PosPage: React.FC = () => {
       setDiscountAmount(0);
       setIsCheckoutOpen(false);
       setIsReceiptOpen(true);
-      addToast("Savdo muvaffaqiyatli amalga oshirildi va saqlandi!", 'success');
-    } catch (err) {
+      addToast("Savdo muvaffaqiyatli amalga oshirildi va ombordan hisobdan chiqarildi!", 'success');
+    } catch (err: any) {
       console.error('Checkout error:', err);
-      addToast("Savdoni rasmiylashtirishda xatolik yuz berdi", 'error');
+      addToast(err?.message || "Savdoni rasmiylashtirishda xatolik yuz berdi", 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -250,7 +266,7 @@ export const PosPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Product Cards Grid */}
+        {/* Product Cards Grid with Images & Modal Trigger */}
         <div className="flex-1 p-4 overflow-y-auto">
           {filteredProducts.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
@@ -258,53 +274,77 @@ export const PosPage: React.FC = () => {
               <p className="text-sm">Bunday mahsulot topilmadi</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3.5">
               {filteredProducts.map((p) => {
                 const inCart = cart.find((item) => item.product.id === p.id);
                 const isOutOfStock = p.quantity <= 0;
 
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    disabled={isOutOfStock}
-                    onClick={() => addToCart(p)}
-                    className={`relative p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-150 group ${
+                    onClick={() => setSelectedDetailProduct(p)}
+                    className={`relative p-3 rounded-2xl border text-left flex flex-col justify-between transition-all duration-200 group cursor-pointer ${
                       isOutOfStock
-                        ? 'bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed'
-                        : 'bg-white border-slate-200 hover:border-blue-500 hover:shadow-md hover:-translate-y-0.5'
+                        ? 'bg-slate-50/80 border-slate-200 opacity-60'
+                        : 'bg-white border-slate-200/90 hover:border-blue-500 hover:shadow-lg hover:-translate-y-1'
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-1 mb-1.5">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                          p.quantity <= 0
-                            ? 'bg-rose-100 text-rose-700'
-                            : p.quantity < 10
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {p.quantity <= 0 ? 'Tugagan' : `${p.quantity} dona`}
-                        </span>
+                      {/* Product Image */}
+                      <div className="relative w-full h-32 bg-slate-50 rounded-xl overflow-hidden mb-2.5 flex items-center justify-center p-2 group-hover:bg-blue-50/20 transition-colors">
+                        <img
+                          src={getProductImageUrl(p)}
+                          alt={p.name}
+                          className="w-full h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-200"
+                          loading="lazy"
+                        />
+                        {/* In cart badge */}
                         {inCart && (
-                          <span className="bg-blue-600 text-white font-bold text-[10px] px-1.5 py-0.2 rounded-full">
+                          <span className="absolute top-2 right-2 bg-blue-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full shadow-xs">
                             x{inCart.quantity}
                           </span>
                         )}
+                        {/* Stock badge */}
+                        <span
+                          className={`absolute bottom-2 left-2 text-[9px] font-bold px-2 py-0.5 rounded-md shadow-xs ${
+                            p.quantity <= 0
+                              ? 'bg-rose-500 text-white'
+                              : p.quantity < 10
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-slate-900/80 text-white backdrop-blur-xs'
+                          }`}
+                        >
+                          {p.quantity <= 0 ? 'Tugagan' : `${p.quantity} dona`}
+                        </span>
                       </div>
-                      <h4 className="text-xs font-semibold text-slate-800 line-clamp-2 leading-tight">
+
+                      <h4 className="text-xs font-bold text-slate-800 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
                         {p.name}
                       </h4>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-xs font-extrabold text-blue-600">
-                        {formatPrice(p.price)}
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                        <Plus className="w-4 h-4" />
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400 font-medium">Narxi:</span>
+                        <span className="text-xs font-extrabold text-blue-600">
+                          {formatPrice(p.price)}
+                        </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDetailProduct(p);
+                        }}
+                        disabled={isOutOfStock}
+                        title="Tafsilotlar va xarid miqdorini tanlash"
+                        className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white font-bold text-xs transition-all shadow-xs flex items-center gap-1 active:scale-95"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                        <span>Tanlash</span>
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -318,7 +358,9 @@ export const PosPage: React.FC = () => {
         <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShoppingCart className="w-5 h-5 text-blue-600" />
-            <h3 className="font-bold text-slate-900">Kassa Savati</h3>
+            <h3 className="font-bold text-slate-900">
+              {isCustomer ? "Mening Savatim" : "Kassa Savati"}
+            </h3>
             <span className="bg-blue-100 text-blue-700 font-bold text-xs px-2 py-0.5 rounded-full">
               {cart.reduce((s, i) => s + i.quantity, 0)} dona
             </span>
@@ -335,54 +377,66 @@ export const PosPage: React.FC = () => {
         </div>
 
         {/* Customer & Cashier selection */}
-        <div className="p-3 border-b border-slate-100 bg-slate-50/30 space-y-2 text-xs">
-          {/* Customer */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-500 font-medium shrink-0 flex items-center gap-1">
-              <User className="w-3.5 h-3.5" />
-              Mijoz:
-            </span>
-            <div className="flex items-center gap-1 flex-1 justify-end">
+        {!isCustomer ? (
+          <div className="p-3 border-b border-slate-100 bg-slate-50/30 space-y-2 text-xs">
+            {/* Customer */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-medium shrink-0 flex items-center gap-1">
+                <User className="w-3.5 h-3.5" />
+                Mijoz:
+              </span>
+              <div className="flex items-center gap-1 flex-1 justify-end">
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium max-w-[170px] truncate focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name} ({c.phone})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setIsNewCustomerOpen(true)}
+                  title="Yangi mijoz qo'shish"
+                  className="p-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Cashier */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-medium shrink-0 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Kassir:
+              </span>
               <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
-                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium max-w-[170px] truncate focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(Number(e.target.value))}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium max-w-[200px] truncate focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.full_name} ({c.phone})
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.first_name} {e.last_name} ({e.role})
                   </option>
                 ))}
               </select>
-              <button
-                onClick={() => setIsNewCustomerOpen(true)}
-                title="Yangi mijoz qo'shish"
-                className="p-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-              </button>
             </div>
           </div>
-
-          {/* Cashier */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-500 font-medium shrink-0 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Kassir:
+        ) : (
+          <div className="p-3 border-b border-slate-100 bg-sky-50/50 text-xs flex items-center justify-between">
+            <span className="text-slate-500 font-medium flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-sky-600" />
+              Xaridor:
             </span>
-            <select
-              value={selectedEmployeeId}
-              onChange={(e) => setSelectedEmployeeId(Number(e.target.value))}
-              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium max-w-[200px] truncate focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.first_name} {e.last_name} ({e.role})
-                </option>
-              ))}
-            </select>
+            <span className="font-bold text-sky-950">
+              {currentUser?.first_name} {currentUser?.last_name} (Siz)
+            </span>
           </div>
-        </div>
+        )}
 
         {/* Cart Items List */}
         <div className="flex-1 p-3 overflow-y-auto divide-y divide-slate-100">
@@ -482,7 +536,7 @@ export const PosPage: React.FC = () => {
             }`}
           >
             <Banknote className="w-4 h-4" />
-            <span>To'lovni Qabul Qilish</span>
+            <span>{isCustomer ? "Buyurtmani Rasmiylashtirish & To'lash" : "To'lovni Qabul Qilish"}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -797,6 +851,16 @@ export const PosPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Product Detail & Quantity Selection Modal */}
+      <ProductDetailModal
+        product={selectedDetailProduct}
+        isOpen={!!selectedDetailProduct}
+        onClose={() => setSelectedDetailProduct(null)}
+        onAddToCart={(product, qty) => addToCart(product, qty)}
+        categories={categories}
+        formatPrice={formatPrice}
+      />
     </div>
   );
 };

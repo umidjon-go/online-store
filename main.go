@@ -33,81 +33,94 @@ func main() {
 	h := handler.NewHandler(strg)
 
 	route := gin.New()
+	_ = route.SetTrustedProxies(nil)
 
 	// Middlewares
 	route.Use(middleware.CORSMiddleware())
 	route.Use(middleware.LoggerMiddleware())
 	route.Use(middleware.RecoveryMiddleware())
 
+	// Auth
+	auth := route.Group("/auth")
+	{
+		auth.POST("/login", h.Login)
+		auth.GET("/profile", middleware.AuthMiddleware(), h.GetProfile)
+	}
+
 	// Categories CRUD
 	category := route.Group("/categories")
 	{
-		category.POST("/", h.CreateCategory)
-		category.GET("/:id", h.GetCategoryByID)
 		category.GET("/", h.GetAllCategories)
-		category.PUT("/:id", h.UpdateCategory)
-		category.DELETE("/:id", h.DeleteCategory)
+		category.GET("/:id", h.GetCategoryByID)
+		category.POST("/", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.CreateCategory)
+		category.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.UpdateCategory)
+		category.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeleteCategory)
 	}
 
 	// Products CRUD
 	product := route.Group("/products")
 	{
-		product.POST("/", h.CreateProduct)
-		product.GET("/:id", h.GetProductByID)
 		product.GET("/", h.GetAllProducts)
-		product.PUT("/:id", h.UpdateProduct)
-		product.DELETE("/:id", h.DeleteProduct)
+		product.GET("/:id", h.GetProductByID)
+		product.POST("/", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.CreateProduct)
+		product.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.UpdateProduct)
+		product.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeleteProduct)
 	}
 
 	// Customers CRUD
 	customer := route.Group("/customers")
+	customer.Use(middleware.OptionalAuthMiddleware())
 	{
-		customer.POST("/", h.CreateCustomer)
-		customer.GET("/:id", h.GetCustomerByID)
 		customer.GET("/", h.GetAllCustomers)
-		customer.PUT("/:id", h.UpdateCustomer)
-		customer.DELETE("/:id", h.DeleteCustomer)
+		customer.GET("/:id", h.GetCustomerByID)
+		customer.POST("/", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER", "CASHIER"), h.CreateCustomer)
+		customer.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER", "CASHIER"), h.UpdateCustomer)
+		customer.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeleteCustomer)
 	}
 
-	// Employees CRUD
+	// Employees CRUD (RBAC: Only Admin & Manager can view, only Admin can modify)
 	employee := route.Group("/employees")
+	employee.Use(middleware.AuthMiddleware())
 	{
-		employee.POST("/", h.CreateEmployee)
-		employee.GET("/:id", h.GetEmployeeByID)
-		employee.GET("/", h.GetAllEmployees)
-		employee.PUT("/:id", h.UpdateEmployee)
-		employee.DELETE("/:id", h.DeleteEmployee)
+		employee.GET("/", middleware.RequireRole("ADMIN", "MANAGER"), h.GetAllEmployees)
+		employee.GET("/:id", middleware.RequireRole("ADMIN", "MANAGER"), h.GetEmployeeByID)
+		employee.POST("/", middleware.RequireRole("ADMIN"), h.CreateEmployee)
+		employee.PUT("/:id", middleware.RequireRole("ADMIN"), h.UpdateEmployee)
+		employee.DELETE("/:id", middleware.RequireRole("ADMIN"), h.DeleteEmployee)
 	}
 
 	// Sales CRUD
 	sale := route.Group("/sales")
+	sale.Use(middleware.OptionalAuthMiddleware())
 	{
+		sale.GET("/", h.GetAllSales)
+		sale.GET("/:id", h.GetSaleByID)
 		sale.POST("/checkout", h.CreateSaleWithItems)
 		sale.POST("/", h.CreateSale)
-		sale.GET("/:id", h.GetSaleByID)
-		sale.GET("/", h.GetAllSales)
-		sale.PUT("/:id", h.UpdateSale)
-		sale.DELETE("/:id", h.DeleteSale)
+		sale.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.UpdateSale)
+		sale.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeleteSale)
 	}
 
 	// Sale Items CRUD
 	saleItem := route.Group("/sale-items")
+	saleItem.Use(middleware.OptionalAuthMiddleware())
 	{
-		saleItem.POST("/", h.CreateSaleItem)
-		saleItem.GET("/:id", h.GetSaleItemByID)
 		saleItem.GET("/", h.GetAllSaleItems)
-		saleItem.PUT("/:id", h.UpdateSaleItem)
-		saleItem.DELETE("/:id", h.DeleteSaleItem)
+		saleItem.GET("/:id", h.GetSaleItemByID)
+		saleItem.POST("/", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER", "CASHIER"), h.CreateSaleItem)
+		saleItem.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.UpdateSaleItem)
+		saleItem.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeleteSaleItem)
 	}
 
 	// Payments CRUD
 	payment := route.Group("/payments")
+	payment.Use(middleware.OptionalAuthMiddleware())
 	{
-		payment.POST("/", h.CreatePayment)
-		payment.GET("/:id", h.GetPaymentByID)
 		payment.GET("/", h.GetAllPayments)
-		payment.PUT("/:id", h.UpdatePayment)
-		payment.DELETE("/:id", h.DeletePayment)
+		payment.GET("/:id", h.GetPaymentByID)
+		payment.POST("/", h.CreatePayment)
+		payment.PUT("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN", "MANAGER"), h.UpdatePayment)
+		payment.DELETE("/:id", middleware.AuthMiddleware(), middleware.RequireRole("ADMIN"), h.DeletePayment)
 	}
 
 	if err := route.Run(":8080"); err != nil {

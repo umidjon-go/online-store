@@ -84,3 +84,13 @@ Shuning uchun SQL-ga parametrlar qo'shish kerak: GET /products/?page=1&limit=20&
 5-muammo: Swagger API Hujjatlashtirish
 Nima beradi: Barcha backend endpointlarini bitta chiroyli veb-sahifada (http://localhost:8080/swagger/index.html) ko'rish, sinash va hujjatlashtirish imkonini beradi.
 🗺️ Tavsiya etiladigan Reja (Qadamlar):
+| Bo'lim / Amal | CASHIER (Kassir) | MANAGER (Menejer) | ADMIN (Boshliq) |
+| --- | :---: | :---: | :---: |
+| Kassa & Savdo qilish (`POST /sales/checkout`) | ✅ Ruxsat | ✅ Ruxsat | ✅ Ruxsat |
+| Tovarlar ro'yxati va narxini ko'rish (`GET /products`) | ✅ Ruxsat | ✅ Ruxsat | ✅ Ruxsat |
+| Yangi tovar qo'shish / narxini o'zgartirish (`POST, PUT /products`) | ❌ Taqiqlangan | ✅ Ruxsat | ✅ Ruxsat |
+| Tovarni o'chirib yuborish (`DELETE /products`) | ❌ Taqiqlangan | ❌ Taqiqlangan | ✅ Ruxsat |
+| Mijozlar bazasi (`/customers`) | ✅ Faqat ko'rish va qo'shish | ✅ To'liq CRUD | ✅ To'liq CRUD |
+| O'tgan sotuvlarni bekor qilish / o'chirish (`DELETE /sales`) | ❌ Taqiqlangan | ❌ Taqiqlangan | ✅ Ruxsat |
+| Xodimlar ro'yxati va Oylik maoshlar (`/employees`) | ❌ Taqiqlangan | ❌ Faqat ko'rish | ✅ To'liq CRUD |
+| Tizim sozlamalari va Baza boshqaruvi | ❌ Taqiqlangan | ❌ Taqiqlangan | ✅ To'liq ruxsat |

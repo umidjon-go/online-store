@@ -4,19 +4,35 @@ import (
 	"database/sql"
 	"fmt"
 	"online-store/models"
+	"online-store/pkg/utils"
 )
 
 func (s *Storage) CreateEmployee(employee models.Employee) (*models.Employee, error) {
 	if employee.Status == "" {
 		employee.Status = "ACTIVE"
 	}
+	if employee.Role == "" {
+		employee.Role = "CASHIER"
+	}
+
+	var passwordHash string
+	var plainPassword string
+	var err error
+	if employee.Password != "" {
+		plainPassword = employee.Password
+		passwordHash, err = utils.HashPassword(employee.Password)
+		if err != nil {
+			return nil, fmt.Errorf("parolni xeshlashda xatolik: %w", err)
+		}
+	}
+
 	query := `
-		INSERT INTO employees (first_name, last_name, phone, role, status, salary, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-		RETURNING id, first_name, last_name, phone, role, status, salary, created_at, updated_at
+		INSERT INTO employees (first_name, last_name, phone, role, status, salary, password_hash, plain_password, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		RETURNING id, first_name, last_name, phone, role, status, salary, COALESCE(plain_password, ''), created_at, updated_at
 	`
 	var resp models.Employee
-	err := s.DB.QueryRow(
+	err = s.DB.QueryRow(
 		query,
 		employee.FirstName,
 		employee.LastName,
@@ -24,6 +40,8 @@ func (s *Storage) CreateEmployee(employee models.Employee) (*models.Employee, er
 		employee.Role,
 		employee.Status,
 		employee.Salary,
+		passwordHash,
+		plainPassword,
 	).Scan(
 		&resp.Id,
 		&resp.FirstName,
@@ -32,18 +50,20 @@ func (s *Storage) CreateEmployee(employee models.Employee) (*models.Employee, er
 		&resp.Role,
 		&resp.Status,
 		&resp.Salary,
+		&resp.PlainPassword,
 		&resp.CreatedAt,
 		&resp.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create employee: %w", err)
 	}
+	resp.Password = resp.PlainPassword
 	return &resp, nil
 }
 
 func (s *Storage) GetEmployeeByID(id int64) (*models.Employee, error) {
 	query := `
-		SELECT id, first_name, last_name, phone, role, status, salary, created_at, updated_at
+		SELECT id, first_name, last_name, phone, role, status, salary, COALESCE(password_hash, ''), COALESCE(plain_password, ''), created_at, updated_at
 		FROM employees
 		WHERE id = $1
 	`
@@ -56,6 +76,8 @@ func (s *Storage) GetEmployeeByID(id int64) (*models.Employee, error) {
 		&resp.Role,
 		&resp.Status,
 		&resp.Salary,
+		&resp.PasswordHash,
+		&resp.PlainPassword,
 		&resp.CreatedAt,
 		&resp.UpdatedAt,
 	)
@@ -65,12 +87,44 @@ func (s *Storage) GetEmployeeByID(id int64) (*models.Employee, error) {
 		}
 		return nil, fmt.Errorf("failed to get employee: %w", err)
 	}
+	resp.Password = resp.PlainPassword
+	return &resp, nil
+}
+
+// GetEmployeeByPhone login qilishda xodimni telefon raqami orqali paroli bilan birga topadi
+func (s *Storage) GetEmployeeByPhone(phone string) (*models.Employee, error) {
+	query := `
+		SELECT id, first_name, last_name, phone, role, status, salary, COALESCE(password_hash, ''), COALESCE(plain_password, ''), created_at, updated_at
+		FROM employees
+		WHERE phone = $1
+	`
+	var resp models.Employee
+	err := s.DB.QueryRow(query, phone).Scan(
+		&resp.Id,
+		&resp.FirstName,
+		&resp.LastName,
+		&resp.Phone,
+		&resp.Role,
+		&resp.Status,
+		&resp.Salary,
+		&resp.PasswordHash,
+		&resp.PlainPassword,
+		&resp.CreatedAt,
+		&resp.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("bunday telefon raqamli xodim topilmadi")
+		}
+		return nil, fmt.Errorf("failed to get employee by phone: %w", err)
+	}
+	resp.Password = resp.PlainPassword
 	return &resp, nil
 }
 
 func (s *Storage) GetAllEmployees() ([]models.Employee, error) {
 	query := `
-		SELECT id, first_name, last_name, phone, role, status, salary, created_at, updated_at
+		SELECT id, first_name, last_name, phone, role, status, salary, COALESCE(plain_password, ''), created_at, updated_at
 		FROM employees
 		ORDER BY id
 	`
@@ -91,11 +145,13 @@ func (s *Storage) GetAllEmployees() ([]models.Employee, error) {
 			&e.Role,
 			&e.Status,
 			&e.Salary,
+			&e.PlainPassword,
 			&e.CreatedAt,
 			&e.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan employee: %w", err)
 		}
+		e.Password = e.PlainPassword
 		employees = append(employees, e)
 	}
 
@@ -110,39 +166,83 @@ func (s *Storage) UpdateEmployee(employee models.Employee) (*models.Employee, er
 	if employee.Status == "" {
 		employee.Status = "ACTIVE"
 	}
-	query := `
-		UPDATE employees
-		SET first_name = $1, last_name = $2, phone = $3, role = $4, status = $5, salary = $6, updated_at = NOW()
-		WHERE id = $7
-		RETURNING id, first_name, last_name, phone, role, status, salary, created_at, updated_at
-	`
+
+	var query string
+	var err error
 	var resp models.Employee
-	err := s.DB.QueryRow(
-		query,
-		employee.FirstName,
-		employee.LastName,
-		employee.Phone,
-		employee.Role,
-		employee.Status,
-		employee.Salary,
-		employee.Id,
-	).Scan(
-		&resp.Id,
-		&resp.FirstName,
-		&resp.LastName,
-		&resp.Phone,
-		&resp.Role,
-		&resp.Status,
-		&resp.Salary,
-		&resp.CreatedAt,
-		&resp.UpdatedAt,
-	)
+
+	if employee.Password != "" {
+		plainPassword := employee.Password
+		hash, errHash := utils.HashPassword(employee.Password)
+		if errHash != nil {
+			return nil, fmt.Errorf("parolni xeshlashda xatolik: %w", errHash)
+		}
+		query = `
+			UPDATE employees
+			SET first_name = $1, last_name = $2, phone = $3, role = $4, status = $5, salary = $6, password_hash = $7, plain_password = $8, updated_at = NOW()
+			WHERE id = $9
+			RETURNING id, first_name, last_name, phone, role, status, salary, COALESCE(plain_password, ''), created_at, updated_at
+		`
+		err = s.DB.QueryRow(
+			query,
+			employee.FirstName,
+			employee.LastName,
+			employee.Phone,
+			employee.Role,
+			employee.Status,
+			employee.Salary,
+			hash,
+			plainPassword,
+			employee.Id,
+		).Scan(
+			&resp.Id,
+			&resp.FirstName,
+			&resp.LastName,
+			&resp.Phone,
+			&resp.Role,
+			&resp.Status,
+			&resp.Salary,
+			&resp.PlainPassword,
+			&resp.CreatedAt,
+			&resp.UpdatedAt,
+		)
+	} else {
+		query = `
+			UPDATE employees
+			SET first_name = $1, last_name = $2, phone = $3, role = $4, status = $5, salary = $6, updated_at = NOW()
+			WHERE id = $7
+			RETURNING id, first_name, last_name, phone, role, status, salary, COALESCE(plain_password, ''), created_at, updated_at
+		`
+		err = s.DB.QueryRow(
+			query,
+			employee.FirstName,
+			employee.LastName,
+			employee.Phone,
+			employee.Role,
+			employee.Status,
+			employee.Salary,
+			employee.Id,
+		).Scan(
+			&resp.Id,
+			&resp.FirstName,
+			&resp.LastName,
+			&resp.Phone,
+			&resp.Role,
+			&resp.Status,
+			&resp.Salary,
+			&resp.PlainPassword,
+			&resp.CreatedAt,
+			&resp.UpdatedAt,
+		)
+	}
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("employee not found")
 		}
 		return nil, fmt.Errorf("failed to update employee: %w", err)
 	}
+	resp.Password = resp.PlainPassword
 	return &resp, nil
 }
 
